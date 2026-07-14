@@ -1,0 +1,181 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  COMERCIAL
+  FINANCEIRO
+}
+
+enum Brand {
+  VERON
+  ARENA360
+}
+
+enum ActivityType {
+  OBSERVACAO
+  LIGACAO
+  REUNIAO
+  VISITA
+  PROPOSTA
+  PENDENCIA
+  DESCARTADO
+}
+
+enum TaskPriority {
+  BAIXA
+  MEDIA
+  ALTA
+}
+
+enum TaskStatus {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDA
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(COMERCIAL)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  clients      Client[]   @relation("ResponsibleUser")
+  activities   Activity[]
+  tasks        Task[]     @relation("TaskResponsible")
+  auditLogs    AuditLog[]
+}
+
+model KanbanColumn {
+  id        String   @id @default(cuid())
+  name      String
+  color     String
+  position  Int
+  createdAt DateTime @default(now())
+
+  clients   Client[]
+}
+
+model Client {
+  id            String    @id @default(cuid())
+  logoUrl       String?
+  company       String
+  contactName   String
+  phone         String?
+  whatsapp      String?
+  email         String?
+  address       String?
+  city          String?
+  brands        Brand[]
+  origin        String?
+  favorite      Boolean   @default(false)
+  position      Int       @default(0)
+
+  responsibleId String?
+  responsible   User?     @relation("ResponsibleUser", fields: [responsibleId], references: [id])
+
+  columnId      String
+  column        KanbanColumn @relation(fields: [columnId], references: [id])
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  activities    Activity[]
+  subscriptions EmailSubscription[]
+  files         FileAsset[]
+  tasks         Task[]
+  aiAnalysis    AIAnalysis?
+
+  @@index([columnId])
+  @@index([city])
+  @@index([responsibleId])
+}
+
+// Assinatura de e-mail independente por marca (Veron / Arena 360)
+model EmailSubscription {
+  id         String  @id @default(cuid())
+  clientId   String
+  client     Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  brand      Brand
+  subscribed Boolean @default(true)
+
+  @@unique([clientId, brand])
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  clientId  String
+  client    Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type      ActivityType
+  text      String
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id])
+  createdAt DateTime     @default(now())
+
+  @@index([clientId])
+}
+
+// Última sugestão da análise de IA para um cliente (histórico simples: 1 registro vigente por cliente)
+model AIAnalysis {
+  clientId   String   @id
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  brandLabel String   // "Veron" | "Arena 360" | "Ambas" | "Indefinido"
+  reasoning  String
+  analyzedAt DateTime @default(now())
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  title         String
+  description   String?
+  dueDate       DateTime?
+  priority      TaskPriority @default(MEDIA)
+  status        TaskStatus   @default(PENDENTE)
+
+  responsibleId String?
+  responsible   User?        @relation("TaskResponsible", fields: [responsibleId], references: [id])
+
+  clientId      String?
+  client        Client?      @relation(fields: [clientId], references: [id])
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([clientId])
+  @@index([responsibleId])
+}
+
+model FileAsset {
+  id         String   @id @default(cuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  url        String
+  filename   String
+  mimeType   String?
+  size       Int?
+  uploadedAt DateTime @default(now())
+
+  @@index([clientId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String   // create | update | delete | move_stage | login | export ...
+  entity    String   // Client | Task | Column | Subscription ...
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}
