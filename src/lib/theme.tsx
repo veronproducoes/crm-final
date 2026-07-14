@@ -2,8 +2,22 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-export const lightTheme = {
-  mode: "light" as const,
+export type Theme = {
+  mode: "light" | "dark";
+  ink: string;
+  canvas: string;
+  surface: string;
+  surfaceAlt: string;
+  line: string;
+  text: string;
+  textMuted: string;
+  brand: string;
+  brandDark: string;
+  overlay: string;
+};
+
+export const lightTheme: Theme = {
+  mode: "light",
   ink: "#171A2B",
   canvas: "#F3F4F9",
   surface: "#FFFFFF",
@@ -16,8 +30,8 @@ export const lightTheme = {
   overlay: "rgba(23,26,43,0.8)",
 };
 
-export const darkTheme = {
-  mode: "dark" as const,
+export const darkTheme: Theme = {
+  mode: "dark",
   ink: "#0B0D16",
   canvas: "#13141F",
   surface: "#1B1E2E",
@@ -29,8 +43,6 @@ export const darkTheme = {
   brandDark: "#1FA491",
   overlay: "rgba(0,0,0,0.65)",
 };
-
-export type Theme = typeof lightTheme;
 
 const ThemeContext = createContext<Theme>(lightTheme);
 export const useTheme = () => useContext(ThemeContext);
