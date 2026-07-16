@@ -47,9 +47,33 @@ export function KanbanView({
   }
 
   async function moveClient(draggedId: string | null, columnId: string, beforeClientId: string | null) {
-    if (!draggedId || draggedId === beforeClientId) return;
-    await apiRequest(`/api/clients/${draggedId}`, "PATCH", { columnId, beforeClientId });
-    mutate("/api/clients");
+    if (!draggedId || draggedId === beforeClientId || !clients) return;
+    const dragged = clients.find((c) => c.id === draggedId);
+    if (!dragged) return;
+
+    const siblings = clients
+      .filter((c) => c.columnId === columnId && c.id !== draggedId)
+      .sort((a, b) => a.position - b.position);
+
+    let newPosition: number;
+    if (beforeClientId === null) {
+      newPosition = (siblings.at(-1)?.position ?? 0) + 1;
+    } else {
+      const idx = siblings.findIndex((s) => s.id === beforeClientId);
+      const prevPos = idx > 0 ? siblings[idx - 1].position : 0;
+      const nextPos = idx !== -1 ? siblings[idx].position : prevPos + 1;
+      newPosition = (prevPos + nextPos) / 2;
+    }
+
+    const optimistic = clients.map((c) => (c.id === draggedId ? { ...c, columnId, position: newPosition } : c));
+    mutate("/api/clients", optimistic, false);
+
+    try {
+      await apiRequest(`/api/clients/${draggedId}`, "PATCH", { columnId, beforeClientId });
+      mutate("/api/clients");
+    } catch (e) {
+      mutate("/api/clients");
+    }
   }
 
   function onDrop(e: React.DragEvent, colId: string) {
@@ -65,8 +89,14 @@ export function KanbanView({
   async function toggleFav(id: string) {
     const c = clients.find((x) => x.id === id);
     if (!c) return;
-    await apiRequest(`/api/clients/${id}`, "PATCH", { favorite: !c.favorite });
-    mutate("/api/clients");
+    const optimistic = clients.map((x) => (x.id === id ? { ...x, favorite: !x.favorite } : x));
+    mutate("/api/clients", optimistic, false);
+    try {
+      await apiRequest(`/api/clients/${id}`, "PATCH", { favorite: !c.favorite });
+      mutate("/api/clients");
+    } catch (e) {
+      mutate("/api/clients");
+    }
   }
 
   async function renameCol(id: string, name: string) {
