@@ -6,14 +6,19 @@ import { useTheme } from "@/lib/theme";
 import { fetcher } from "@/lib/fetcher";
 import { StatCard } from "@/components/ui/StatCard";
 import { Avatar } from "@/components/ui/Avatar";
-import { UserPlus, TrendingUp, CheckCircle2, X, Users } from "lucide-react";
+import { Pill } from "@/components/ui/Pill";
+import { UserPlus, TrendingUp, CheckCircle2, X, Users, CheckSquare, AlertTriangle } from "lucide-react";
 import { fmtDate } from "@/lib/domain";
-import type { ClientDto, KanbanColumnDto } from "@/types";
+import type { ClientDto, KanbanColumnDto, TaskDto } from "@/types";
+
+const priorityColors: Record<string, string> = { BAIXA: "#8B8FA8", MEDIA: "#4C6EF5", ALTA: "#E5484D" };
+const priorityLabels: Record<string, string> = { BAIXA: "Baixa", MEDIA: "Média", ALTA: "Alta" };
 
 export function DashboardView() {
   const T = useTheme();
   const { data: clients } = useSWR<ClientDto[]>("/api/clients", fetcher);
   const { data: columns } = useSWR<KanbanColumnDto[]>("/api/columns", fetcher);
+  const { data: tasks } = useSWR<TaskDto[]>("/api/tasks", fetcher);
 
   const stats = useMemo(() => {
     if (!clients) return null;
@@ -36,6 +41,22 @@ export function DashboardView() {
     return acts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 6);
   }, [clients]);
 
+  const pendingTasks = useMemo(() => {
+    if (!tasks) return [];
+    return tasks
+      .filter((t) => t.status !== "CONCLUIDA")
+      .sort((a, b) => {
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      })
+      .slice(0, 6);
+  }, [tasks]);
+
+  function isOverdue(t: TaskDto) {
+    return !!t.dueDate && new Date(t.dueDate).getTime() < Date.now();
+  }
+
   if (!clients || !columns || !stats) {
     return <div className="p-6 text-sm" style={{ color: T.textMuted }}>Carregando painel...</div>;
   }
@@ -57,7 +78,7 @@ export function DashboardView() {
         <StatCard label="Total de clientes" value={stats.total} icon={Users} color="#4C6EF5" />
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-3 gap-5 mb-5">
         <div className="col-span-2 rounded-2xl p-5 shadow-sm" style={{ background: T.surface, border: `1px solid ${T.line}` }}>
           <div className="text-sm font-semibold mb-4" style={{ color: T.text }}>
             Distribuição por etapa
@@ -113,6 +134,48 @@ export function DashboardView() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl p-5 shadow-sm" style={{ background: T.surface, border: `1px solid ${T.line}` }}>
+        <div className="flex items-center gap-2 text-sm font-semibold mb-4" style={{ color: T.text }}>
+          <CheckSquare size={16} color={T.brand} />
+          Tarefas pendentes
+        </div>
+        {pendingTasks.length === 0 && (
+          <div className="text-sm" style={{ color: T.textMuted }}>
+            Nenhuma tarefa pendente. Crie tarefas na tela "Tarefas".
+          </div>
+        )}
+        <div className="space-y-2">
+          {pendingTasks.map((t) => {
+            const overdue = isOverdue(t);
+            return (
+              <div
+                key={t.id}
+                className="flex items-center justify-between text-sm px-3 py-2.5 rounded-lg"
+                style={{ background: T.surfaceAlt, border: overdue ? "1px solid #E5484D55" : "none" }}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {overdue && <AlertTriangle size={14} color="#E5484D" />}
+                  <span className="truncate" style={{ color: T.text }}>
+                    {t.title}
+                  </span>
+                  {t.client && (
+                    <span className="text-xs truncate" style={{ color: T.textMuted }}>
+                      — {t.client.company}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs" style={{ color: overdue ? "#E5484D" : T.textMuted }}>
+                    {t.dueDate ? fmtDate(t.dueDate) : "Sem prazo"}
+                  </span>
+                  <Pill color={priorityColors[t.priority]}>{priorityLabels[t.priority]}</Pill>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
