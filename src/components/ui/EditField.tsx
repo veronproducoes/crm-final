@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import type { LucideIcon } from "lucide-react";
 
@@ -17,6 +18,16 @@ export function EditField({
   span2?: boolean;
 }) {
   const T = useTheme();
+  const [local, setLocal] = useState(value);
+
+  useEffect(() => {
+    setLocal(value);
+  }, [value]);
+
+  function commit() {
+    if (local !== value) onChange(local);
+  }
+
   return (
     <div className={span2 ? "col-span-2" : ""}>
       <label className="text-xs font-medium flex items-center gap-2 mb-1" style={{ color: T.textMuted }}>
@@ -26,8 +37,15 @@ export function EditField({
       <input
         className="w-full text-sm rounded-lg px-2 py-1.5 outline-none"
         style={{ border: `1px solid ${T.line}`, background: T.surfaceAlt, color: T.text }}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            commit();
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
       />
     </div>
   );
