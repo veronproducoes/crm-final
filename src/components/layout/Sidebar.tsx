@@ -14,7 +14,6 @@ import {
   Sparkles,
   Settings,
   CheckSquare,
-  CalendarDays,
   Moon,
   Sun,
   LogOut,
@@ -29,7 +28,6 @@ const NAV = [
   { href: "/reports", label: "Relatórios", icon: BarChart3 },
   { href: "/ai", label: "Análise por IA", icon: Sparkles },
   { href: "/tasks", label: "Tarefas", icon: CheckSquare },
-  { href: "/agenda", label: "Agenda", icon: CalendarDays },
 ];
 
 export function Sidebar({ user }: { user: { name: string; email: string; role: string } }) {
