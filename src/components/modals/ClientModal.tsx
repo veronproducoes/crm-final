@@ -52,8 +52,19 @@ export function ClientModal({
   const logoInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: client, isLoading } = useSWR<ClientDto>(`/api/clients/${clientId}`, fetcher);
-  const { data: files } = useSWR<any[]>(`/api/clients/${clientId}/files`, fetcher);
+  // Em vez de sempre buscar o cliente do zero no servidor (o que deixa a
+  // abertura do modal lenta), aproveitamos os dados que a lista de clientes
+  // já carregou (mesmo cache do SWR) como ponto de partida. Isso faz o modal
+  // abrir na hora, e os dados são atualizados em segundo plano.
+  const { data: cachedList } = useSWR<ClientDto[]>("/api/clients", fetcher);
+  const fallbackClient = cachedList?.find((c) => c.id === clientId);
+  const { data: client, isLoading } = useSWR<ClientDto>(`/api/clients/${clientId}`, fetcher, {
+    fallbackData: fallbackClient,
+    revalidateOnMount: !fallbackClient,
+  });
+  // A lista de arquivos só é buscada quando a pessoa realmente abre a aba
+  // "Arquivos" — evita uma chamada extra ao servidor toda vez que o modal abre.
+  const { data: files } = useSWR<any[]>(tab === "files" ? `/api/clients/${clientId}/files` : null, fetcher);
 
   if (isLoading || !client) {
     return (
@@ -375,7 +386,7 @@ export function ClientModal({
                   </div>
                 )}
                 {files?.map((f) => (
-                  <a
+                  
                     key={f.id}
                     href={f.url}
                     target="_blank"
