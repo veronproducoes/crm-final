@@ -29,6 +29,7 @@ export function KanbanView({
 }) {
   const T = useTheme();
   const dragId = useRef<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [brandFilter, setBrandFilter] = useState("todas");
   const [sortLeadsAZ, setSortLeadsAZ] = useState(false);
   const [openClientId, setOpenClientId] = useState<string | null>(null);
@@ -44,6 +45,23 @@ export function KanbanView({
 
   function onDragStart(e: React.DragEvent, id: string) {
     dragId.current = id;
+  }
+
+  function handleAutoScroll(e: React.DragEvent) {
+    const el = scrollRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const edgeSize = 120;
+    const maxSpeed = 22;
+    const x = e.clientX;
+
+    if (x < rect.left + edgeSize) {
+      const intensity = Math.min(1, (rect.left + edgeSize - x) / edgeSize);
+      el.scrollLeft -= maxSpeed * intensity;
+    } else if (x > rect.right - edgeSize) {
+      const intensity = Math.min(1, (x - (rect.right - edgeSize)) / edgeSize);
+      el.scrollLeft += maxSpeed * intensity;
+    }
   }
 
   async function moveClient(draggedId: string | null, columnId: string, beforeClientId: string | null) {
@@ -121,7 +139,7 @@ export function KanbanView({
   }
 
   return (
-    <div className="p-6 overflow-x-auto h-full">
+    <div ref={scrollRef} onDragOver={handleAutoScroll} className="p-6 overflow-x-auto h-full">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold mb-1" style={{ color: T.text, fontFamily: "'Space Grotesk', sans-serif" }}>
