@@ -380,12 +380,10 @@ export function ClientModal({
                   </div>
                 )}
                 {files?.map((f) => (
-                  
+                  <div
                     key={f.id}
-                    href={f.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 p-2 rounded-lg hover:opacity-80"
+                    onClick={() => window.open(f.url, "_blank", "noreferrer")}
+                    className="flex items-center gap-2 p-2 rounded-lg hover:opacity-80 cursor-pointer"
                     style={{ border: `1px solid ${T.line}` }}
                   >
                     <FileText size={16} color={T.textMuted} />
@@ -395,7 +393,7 @@ export function ClientModal({
                     <span className="text-xs" style={{ color: T.textMuted }}>
                       {fmtDate(f.uploadedAt)}
                     </span>
-                  </a>
+                  </div>
                 ))}
               </div>
             </div>
