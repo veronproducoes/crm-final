@@ -8,8 +8,9 @@ import { Avatar, brandRingStyle } from "@/components/ui/Avatar";
 import { Pill } from "@/components/ui/Pill";
 import { BrandFilter } from "@/components/kanban/BrandFilter";
 import { AddLeadModal } from "@/components/modals/AddLeadModal";
+import { ImportClientsModal } from "@/components/modals/ImportClientsModal";
 import { ClientModal } from "@/components/modals/ClientModal";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, Upload } from "lucide-react";
 import { brandByDbValue, fmtDate } from "@/lib/domain";
 import type { ClientDto, KanbanColumnDto, UserLite } from "@/types";
 
@@ -32,6 +33,7 @@ export function ClientsView({
   const [respFilter, setRespFilter] = useState("Todos");
   const [brandFilter, setBrandFilter] = useState("todas");
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [openClientId, setOpenClientId] = useState<string | null>(null);
 
   const { data: clients } = useSWR<ClientDto[]>("/api/clients", fetcher);
@@ -59,9 +61,18 @@ export function ClientsView({
           Cadastro de empresas
         </h1>
         {canCreate && (
-          <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg text-white" style={{ background: T.brand }}>
-            <Plus size={15} /> Novo lead
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg"
+              style={{ border: `1px solid ${T.line}`, color: T.text }}
+            >
+              <Upload size={15} /> Importar CSV
+            </button>
+            <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg text-white" style={{ background: T.brand }}>
+              <Plus size={15} /> Novo lead
+            </button>
+          </div>
         )}
       </div>
       <p className="text-sm mb-5" style={{ color: T.textMuted }}>
@@ -154,6 +165,7 @@ export function ClientsView({
       </div>
 
       {showAdd && <AddLeadModal onClose={() => setShowAdd(false)} teamMembers={teamMembers} origins={origins} />}
+      {showImport && <ImportClientsModal onClose={() => setShowImport(false)} />}
       {openClientId && (
         <ClientModal
           clientId={openClientId}
