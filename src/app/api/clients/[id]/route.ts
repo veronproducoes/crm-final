@@ -2,112 +2,82 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { logAudit } from "@/lib/audit";
 import { permissions } from "@/lib/permissions";
+import { logAudit } from "@/lib/audit";
+import { z } from "zod";
+import crypto from "crypto";
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export const maxDuration = 60;
+
+const rowSchema = z.object({
+  company: z.string().min(1),
+  contactName: z.string().min(1),
+  phone: z.string().optional(),
+  whatsapp: z.string().optional(),
+  email: z.string().optional(),
+  city: z.string().optional(),
+  address: z.string().optional(),
+  origin: z.string().optional(),
+  brands: z.array(z.enum(["VERON", "ARENA360"])).default([]),
+});
+
+const bodySchema = z.object({
+  rows: z.array(rowSchema).min(1).max(2000),
+});
+
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-
-  const client = await prisma.client.findUnique({
-    where: { id: params.id },
-    include: {
-      responsible: { select: { id: true, name: true } },
-      column: true,
-      subscriptions: true,
-      activities: { orderBy: { createdAt: "desc" }, include: { user: { select: { name: true } } } },
-      files: true,
-      aiAnalysis: true,
-    },
-  });
-  if (!client) return NextResponse.json({ error: "Cliente não encontrado." }, { status: 404 });
-  return NextResponse.json(client);
-}
-
-// PATCH /api/clients/[id]
-// Suporta edição inline de campos (aba "Dados"), toggle de favorito, e
-// movimentação no Kanban: { columnId, beforePosition } para reordenar dentro
-// ou entre colunas.
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  if (!permissions.canEditClients(session.user.role)) {
+    return NextResponse.json({ error: "Sem permissão para importar clientes." }, { status: 403 });
+  }
 
   const body = await req.json();
-  const role = session.user.role;
-
-  if (body.columnId !== undefined) {
-    if (!permissions.canMoveKanban(role)) {
-      return NextResponse.json({ error: "Sem permissão para mover cards no Kanban." }, { status: 403 });
-    }
-  } else if (!permissions.canEditClients(role)) {
-    return NextResponse.json({ error: "Sem permissão para editar clientes." }, { status: 403 });
+  const parsed = bodySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const allowedFields = [
-    "company",
-    "contactName",
-    "phone",
-    "whatsapp",
-    "email",
-    "address",
-    "city",
-    "brands",
-    "origin",
-    "responsibleId",
-    "favorite",
-    "logoUrl",
-    "columnId",
-    "position",
-  ];
-
-  const data: Record<string, any> = {};
-  for (const key of allowedFields) {
-    if (body[key] !== undefined) data[key] = body[key];
+  const leadsColumn = await prisma.kanbanColumn.findFirst({ where: { id: "leads" } });
+  if (!leadsColumn) {
+    return NextResponse.json({ error: "Coluna 'Leads' não encontrada." }, { status: 500 });
   }
 
-  // Reordenação: se vier beforeClientId, recalcula a posição entre vizinhos
-  if (body.beforeClientId !== undefined) {
-    const targetColumnId = body.columnId || (await prisma.client.findUnique({ where: { id: params.id } }))?.columnId;
-    const siblings = await prisma.client.findMany({
-      where: { columnId: targetColumnId, NOT: { id: params.id } },
-      orderBy: { position: "asc" },
-    });
-    if (body.beforeClientId === null) {
-      data.position = (siblings.at(-1)?.position ?? 0) + 1;
-    } else {
-      const idx = siblings.findIndex((s) => s.id === body.beforeClientId);
-      const prevPos = idx > 0 ? siblings[idx - 1].position : 0;
-      const nextPos = idx !== -1 ? siblings[idx].position : prevPos + 1;
-      data.position = (prevPos + nextPos) / 2;
-    }
-  }
+  const clientsData = parsed.data.rows.map((row) => ({
+    id: crypto.randomUUID(),
+    company: row.company,
+    contactName: row.contactName,
+    phone: row.phone || null,
+    whatsapp: row.whatsapp || null,
+    email: row.email || null,
+    city: row.city || null,
+    address: row.address || null,
+    origin: row.origin || null,
+    brands: row.brands as any,
+    responsibleId: session.user.id,
+    columnId: leadsColumn.id,
+  }));
 
-  const updated = await prisma.client.update({
-    where: { id: params.id },
-    data,
-    include: { subscriptions: true, activities: true, column: true, responsible: true },
-  });
+  const subscriptionsData = clientsData.flatMap((c) => [
+    { id: crypto.randomUUID(), clientId: c.id, brand: "VERON" as const, subscribed: true },
+    { id: crypto.randomUUID(), clientId: c.id, brand: "ARENA360" as const, subscribed: true },
+  ]);
+
+  let created = 0;
+  try {
+    const result = await prisma.client.createMany({ data: clientsData, skipDuplicates: true });
+    created = result.count;
+    await prisma.emailSubscription.createMany({ data: subscriptionsData, skipDuplicates: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: `Falha ao importar: ${e.message || "erro desconhecido"}` }, { status: 500 });
+  }
 
   await logAudit({
     userId: session.user.id,
-    action: body.columnId ? "move_stage" : "update",
+    action: "import_csv",
     entity: "Client",
-    entityId: updated.id,
-    metadata: data,
+    metadata: { created, total: clientsData.length },
   });
 
-  return NextResponse.json(updated);
-}
-
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-  if (!permissions.canDeleteClients(session.user.role)) {
-    return NextResponse.json({ error: "Apenas Administradores podem excluir clientes." }, { status: 403 });
-  }
-
-  await prisma.client.delete({ where: { id: params.id } });
-  await logAudit({ userId: session.user.id, action: "delete", entity: "Client", entityId: params.id });
-
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ created, errors: [] });
 }
