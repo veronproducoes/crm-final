@@ -2,82 +2,110 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { permissions } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
-import crypto from "crypto";
 
-export const maxDuration = 60;
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
-const rowSchema = z.object({
+  const { searchParams } = new URL(req.url);
+  const search = searchParams.get("search") || "";
+  const city = searchParams.get("city");
+  const responsibleId = searchParams.get("responsibleId");
+  const brand = searchParams.get("brand");
+  const stage = searchParams.get("stage");
+
+  const clients = await prisma.client.findMany({
+    where: {
+      AND: [
+        search
+          ? {
+              OR: [
+                { company: { contains: search, mode: "insensitive" } },
+                { contactName: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+                { city: { contains: search, mode: "insensitive" } },
+                { phone: { contains: search, mode: "insensitive" } },
+              ],
+            }
+          : {},
+        city && city !== "Todas" ? { city } : {},
+        responsibleId && responsibleId !== "Todos" ? { responsibleId } : {},
+        brand && brand !== "todas" ? { brands: { has: brand.toUpperCase() as any } } : {},
+        stage ? { columnId: stage } : {},
+      ],
+    },
+    include: {
+      responsible: { select: { id: true, name: true } },
+      column: true,
+      subscriptions: true,
+      activities: { orderBy: { createdAt: "desc" } },
+      aiAnalysis: true,
+    },
+    orderBy: { position: "asc" },
+  });
+
+  return NextResponse.json(clients);
+}
+
+const createClientSchema = z.object({
   company: z.string().min(1),
   contactName: z.string().min(1),
   phone: z.string().optional(),
   whatsapp: z.string().optional(),
   email: z.string().optional(),
-  city: z.string().optional(),
   address: z.string().optional(),
-  origin: z.string().optional(),
+  city: z.string().optional(),
   brands: z.array(z.enum(["VERON", "ARENA360"])).default([]),
-});
-
-const bodySchema = z.object({
-  rows: z.array(rowSchema).min(1).max(2000),
+  origin: z.string().optional(),
+  responsibleId: z.string().optional(),
+  note: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-  if (!permissions.canEditClients(session.user.role)) {
-    return NextResponse.json({ error: "Sem permissão para importar clientes." }, { status: 403 });
-  }
 
   const body = await req.json();
-  const parsed = bodySchema.safeParse(body);
+  const parsed = createClientSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
+  const data = parsed.data;
 
   const leadsColumn = await prisma.kanbanColumn.findFirst({ where: { id: "leads" } });
   if (!leadsColumn) {
     return NextResponse.json({ error: "Coluna 'Leads' não encontrada." }, { status: 500 });
   }
 
-  const clientsData = parsed.data.rows.map((row) => ({
-    id: crypto.randomUUID(),
-    company: row.company,
-    contactName: row.contactName,
-    phone: row.phone || null,
-    whatsapp: row.whatsapp || null,
-    email: row.email || null,
-    city: row.city || null,
-    address: row.address || null,
-    origin: row.origin || null,
-    brands: row.brands as any,
-    responsibleId: session.user.id,
-    columnId: leadsColumn.id,
-  }));
-
-  const subscriptionsData = clientsData.flatMap((c) => [
-    { id: crypto.randomUUID(), clientId: c.id, brand: "VERON" as const, subscribed: true },
-    { id: crypto.randomUUID(), clientId: c.id, brand: "ARENA360" as const, subscribed: true },
-  ]);
-
-  let created = 0;
-  try {
-    const result = await prisma.client.createMany({ data: clientsData, skipDuplicates: true });
-    created = result.count;
-    await prisma.emailSubscription.createMany({ data: subscriptionsData, skipDuplicates: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: `Falha ao importar: ${e.message || "erro desconhecido"}` }, { status: 500 });
-  }
-
-  await logAudit({
-    userId: session.user.id,
-    action: "import_csv",
-    entity: "Client",
-    metadata: { created, total: clientsData.length },
+  const client = await prisma.client.create({
+    data: {
+      company: data.company,
+      contactName: data.contactName,
+      phone: data.phone,
+      whatsapp: data.whatsapp,
+      email: data.email,
+      address: data.address,
+      city: data.city,
+      brands: data.brands as any,
+      origin: data.origin,
+      responsibleId: data.responsibleId || session.user.id,
+      columnId: leadsColumn.id,
+      subscriptions: {
+        create: [
+          { brand: "VERON", subscribed: true },
+          { brand: "ARENA360", subscribed: true },
+        ],
+      },
+      activities: data.note
+        ? { create: [{ type: "OBSERVACAO", text: data.note, userId: session.user.id }] }
+        : undefined,
+    },
+    include: { subscriptions: true, activities: true, column: true, responsible: true },
   });
 
-  return NextResponse.json({ created, errors: [] });
+  await logAudit({ userId: session.user.id, action: "create", entity: "Client", entityId: client.id, metadata: { company: client.company } });
+
+  return NextResponse.json(client, { status: 201 });
 }
